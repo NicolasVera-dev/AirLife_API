@@ -13,13 +13,13 @@ public class Datatype {
 	private int iddatatype;
 	
 	private String libelle;
-	private int threshold;
+	private double seuil;
 	
-	public Datatype(int iddatatype, String libelle, int threshold) {
+	public Datatype(int iddatatype, String libelle, double seuil) {
 		super();
 		this.iddatatype = iddatatype;
 		this.libelle = libelle;
-		this.threshold = threshold;
+		this.seuil = seuil;
 	}
 	
 	public Datatype() {
@@ -42,17 +42,17 @@ public class Datatype {
 		this.libelle = libelle;
 	}
 
-	public int getThreshold() {
-		return threshold;
+	public double getSeuil() {
+		return seuil;
 	}
 
-	public void setThreshold(int threshold) {
-		this.threshold = threshold;
+	public void setSeuil(double seuil) {
+		this.seuil = seuil;
 	}
 
 	@Override
 	public String toString() {
-		return "Datatype [iddatatype=" + iddatatype + ", libelle=" + libelle + ", threshold=" + threshold + "]";
+		return "Datatype [iddatatype=" + iddatatype + ", libelle=" + libelle + ", seuil=" + seuil + "]";
 	}
 
 }

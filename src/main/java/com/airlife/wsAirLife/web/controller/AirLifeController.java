@@ -336,9 +336,11 @@ public class AirLifeController  {
 		Users user = usersDao.findById(iduser);
 		//On récupère le PlayerID
 		String playerID = user.getPlayer_id_navigateurs();
+		//On récupère le seuil en fonction de l'iddatatype
+		double seuil = datatypeDao.findSeuilByIdDataType(iddatatype);
 		
 		//Si datavalue > seuil
-		if(datavalue>0) {
+		if(datavalue>seuil) {
 		//Alors on envoie la notification
 			//On joue le script avec le PlayerID
 			sendNotif(playerID);
