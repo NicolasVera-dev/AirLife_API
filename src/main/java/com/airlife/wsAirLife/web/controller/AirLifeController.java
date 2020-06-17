@@ -15,7 +15,12 @@ import java.util.List;
 import java.util.Map;
 
 import javax.mail.MessagingException;
+import javax.persistence.EntityManager;
+import javax.persistence.EntityManagerFactory;
+import javax.persistence.EntityTransaction;
+import javax.persistence.PersistenceContext;
 
+import org.springframework.aop.AopInvocationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.repository.query.AbstractJpaQuery;
@@ -45,6 +50,7 @@ import com.airlife.wsAirLife.model.Notification;
 import com.airlife.wsAirLife.model.SaveSensor;
 import com.airlife.wsAirLife.model.Sensor;
 import com.airlife.wsAirLife.model.SensorByUsers;
+import com.airlife.wsAirLife.model.ToCapture;
 import com.airlife.wsAirLife.model.Users;
 import com.airlife.wsAirLife.exceptions.IntrouvableException;
 import com.airlife.wsAirLife.mail.SmtpMailSender;
@@ -71,6 +77,8 @@ public class AirLifeController  {
 	private SaveSensorDao saveSensorDao;
 	@Autowired
 	private SmtpMailSender emailSender;
+	@Autowired
+	private EntityManagerFactory emf;
 	
 	@Value("${env.racine}")
 	public String RACINE_WEBSITE ;
@@ -204,7 +212,7 @@ public class AirLifeController  {
 		//On récupère le current Timestamp
 		Timestamp timestamp = new Timestamp(System.currentTimeMillis());
 		long currentTimestamp = timestamp.getTime();
-
+				
 		//On initialise le user lié au capteur
 		Sensor sensor = new Sensor();
 		
@@ -216,10 +224,12 @@ public class AirLifeController  {
 		else if(usersDao.findByLogin(username) != null) {
 			user = usersDao.findByLogin(username);
 		}
-		
 				
 		if(user == null) 
 			throw new IntrouvableException("L'utilisateur avec le username " +username+ " n'existe pas");
+		
+		//On récupère le PlayerID
+		String playerID = user.getPlayer_id_navigateurs();
 		
 		sensor.setUser(user);
 		sensor.setIdsensor(idsensor);
@@ -248,6 +258,7 @@ public class AirLifeController  {
 				//5. On ajoute la notification
 				logger.info("Ajout de la notification");
 				Notification notif = new Notification(user, "Le capteur "+ sensor.getText() +" a bien été ajouté", timestamp);
+				sendNotif(playerID, "Le capteur a bien été ajouté");
 				notifDao.save(notif);
 
 				return Collections.singletonMap("success", true);
@@ -320,7 +331,7 @@ public class AirLifeController  {
 		logger.info("Ajout d'une donnée...");  
 		
 		//On récupère le current Timestamp
-		Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+		Timestamp timestamp = new Timestamp(System.currentTimeMillis());		
 		
 		Sensor sensor = recupererSensorParId(idsensor);
 		if(sensor == null)
@@ -330,23 +341,46 @@ public class AirLifeController  {
 			throw new IntrouvableException("La datatype avec l'id " +iddatatype+ " n'existe pas");
 		Datas data = new Datas(sensor, datatype, datavalue);
 		
+		// Insert dans to_capture
+		logger.info("Insert dans to_capture...");  
+		String query = "insert into to_capture(idsensor, iddatatype) values(?1,?2) on duplicate key update idsensor = ?1";
+		
+		EntityManager em = emf.createEntityManager();
+	    EntityTransaction tx = em.getTransaction();
+	    tx.begin();
+	    em.createNativeQuery(query)
+	    	.setParameter(1, idsensor)
+	    	.setParameter(2, iddatatype)
+	    	.executeUpdate();
+	    tx.commit();
+	    em.close();	
+		
 		//On récupère le iduser en fonction de l'idsensor
 		int iduser = sensorDao.findUserBySensor(idsensor);
 		//On récupère le user en fonction de son id
 		Users user = usersDao.findById(iduser);
 		//On récupère le PlayerID
 		String playerID = user.getPlayer_id_navigateurs();
-		//On récupère le seuil en fonction de l'iddatatype
-		double seuil = datatypeDao.findSeuilByIdDataType(iddatatype);
 		
+		//On récupère le seuil
+		double seuil = 0;
+		logger.info("Récupération du seuil...");  
+		try {
+			//Si on trouve un seuil dans la table seuil on le récupère
+			seuil = datatypeDao.findSeuilByIdUserAndIdDataType(iduser,iddatatype);
+		} catch (AopInvocationException e){
+			//Sinon on le prend dans la table iddatatype
+			seuil = datatypeDao.findSeuilByIdDataType(iddatatype);
+		}
+				 		
 		//Si datavalue > seuil
 		if(datavalue>seuil) {
 		//Alors on envoie la notification
 			//On joue le script avec le PlayerID
-			sendNotif(playerID);
+			sendNotif(playerID, "Nouveau relevé : " +datavalue + " ppm. Le seuil ("+seuil+") a été dépassé pour le capteur " + sensor.getText());
 			//On enregistre la notification dans la table notifications
 			logger.info("Ajout de la notification..."); 
-			Notification notif = new Notification(user, "Le seuil a été dépassé", timestamp);
+			Notification notif = new Notification(user, "Nouveau relevé : " +datavalue +" ppm. Le seuil ("+seuil+") a été dépassé pour le capteur " + sensor.getText(), timestamp);
 			notifDao.save(notif);
 		}
 		datasDao.save(data);
@@ -450,13 +484,13 @@ public class AirLifeController  {
 		return Collections.singletonMap("success", true);
 	}
 	
-	public static void sendNotif(String PlayerID) {
+	public static void sendNotif(String PlayerID, String message) {
         try {
         	URL test = new URL("http://airlife.nicolas-a.fr/cron_send_notification.php");
         	URLConnection connexion = test.openConnection();
         	connexion.setDoOutput(true);
         	PrintStream ps = new PrintStream(connexion.getOutputStream());
-        	ps.print("&PlayerID=" + PlayerID);
+        	ps.print("&PlayerID=" + PlayerID +"&message=" + message);
         	connexion.getInputStream();
         	ps.close();
         
@@ -474,37 +508,4 @@ public class AirLifeController  {
 	    	e2.printStackTrace();
 	    }
 	}
-	
-	/*@GetMapping(value="/test")
-	public static void testNotif() {
-        String PlayerID="e873c6e5-4922-45e7-a984-dcfc682b9c08";
-        try {
-		// fonction appelé lorsqu'une donnée a été ajoutée avec un seuil dépassé.
-		// le but est d'appelé le script en modifiant la valeur de ID avec celle récupérée en base
-		// il faut donc faire un SELECT player_id pour récupérer cette valeur
-		URL test = new URL("http://airlife.nicolas-a.fr/cron_send_notification.php");
-		URLConnection testco = test.openConnection();
-		testco.setDoOutput(true);
-		PrintStream ps = new PrintStream(testco.getOutputStream());
-        ps.print("&PlayerID=" + PlayerID);
-        testco.getInputStream();
-        ps.close();
-        
-		BufferedReader in = new BufferedReader(
-                new InputStreamReader(
-                testco.getInputStream()));
-		String inputLine;
-		while ((inputLine = in.readLine()) != null) 
-            System.out.println(inputLine);
-        in.close();
-        
-	    } catch (MalformedURLException e1) {
-	        e1.printStackTrace();
-	    } catch (IOException e2) {
-	        e2.printStackTrace();
-	    }
-        //b0b15de8-0982-4a93-afc8-ad4c7c0e109f
-	}*/
-	
-	
 }

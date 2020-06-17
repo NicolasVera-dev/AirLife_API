@@ -13,4 +13,7 @@ public interface DatatypeDao extends JpaRepository<Datatype, Integer>{
 	
 	@Query(value = "SELECT seuil FROM datatype WHERE iddatatype = ?1", nativeQuery = true)
 	public double findSeuilByIdDataType(int iddatatype);
+	
+	@Query(value = "SELECT seuil FROM seuil WHERE iduser = ?1 AND iddatatype = ?2", nativeQuery = true)
+	public double findSeuilByIdUserAndIdDataType(int iduser, int iddatatype);
 }
